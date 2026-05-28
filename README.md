@@ -44,3 +44,7 @@ zig build run -- --only-racing
 - Throttle & brake bars
 - Lap times and position
 - Power (HP) and torque (lb-ft)
+
+
+
+** THIS IS ALL VIBE CODED, BE WARNED **
