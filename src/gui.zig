@@ -24,6 +24,23 @@ pub const Gui = struct {
         rl.initWindow(screen.width, screen.height, "FH6 Dashboard");
         rl.setTargetFPS(60);
 
+        const mon_count = rl.getMonitorCount();
+        var target_mon: i32 = 0;
+        if (mon_count > 1) {
+            var best_y: f32 = -999999;
+            var i: i32 = 0;
+            while (i < mon_count) : (i += 1) {
+                const pos = rl.getMonitorPosition(i);
+                if (pos.y > best_y) {
+                    best_y = pos.y;
+                    target_mon = i;
+                }
+            }
+            rl.setWindowMonitor(target_mon);
+        }
+        rl.toggleFullscreen();
+        
+
         const default_font = try rl.getFontDefault();
         var gui: Gui = .{
             .screen = screen,
@@ -76,17 +93,17 @@ pub const Gui = struct {
         // ── Panel backgrounds ─────────────────────────────────────────────
         // Left panel  (tyres, speed, rpm)  — x: 0..220
         const lp_w: i32 = 220;
-        rl.drawRectangle(0, 80, lp_w, h - 80, display.panel);
-        rl.drawRectangle(lp_w, 80, 2, h - 80, display.panel_edge);
+        rl.drawRectangle(0, 0, lp_w, h - 80, display.panel);
+        rl.drawRectangle(lp_w, 0, 2, h - 80, display.panel_edge);
 
         // Right panel (lap times, position) — x: 800..1024
         const rp_x: i32 = w - 224;
-        rl.drawRectangle(rp_x, 80, 224, h - 80, display.panel);
-        rl.drawRectangle(rp_x, 80, 2, h - 80, display.panel_edge);
+        rl.drawRectangle(rp_x, 0, 224, h - 80, display.panel);
+        rl.drawRectangle(rp_x, 0, 2, h - 80, display.panel_edge);
 
         // ── RPM tachometer (top, full width) ──────────────────────────────
         const rpm_r = display.rpmRatio(pkt.current_engine_rpm, pkt.engine_max_rpm);
-        drawTach(self, w, rpm_r);
+        drawTach(self, w, h, rpm_r);
 
         // ── LEFT PANEL ────────────────────────────────────────────────────
         // Tyre temperatures  y: 86..246
@@ -99,19 +116,19 @@ pub const Gui = struct {
         drawTyres(self, temps[0..], unit_mode);
 
         // Divider between tyres and speed
-        rl.drawRectangle(8, 256, lp_w - 16, 1, display.panel_edge);
+        rl.drawRectangle(8, 176, lp_w - 16, 1, display.panel_edge);
 
         // Speed  y: 266..406  (label above value)
         const speed = units.speed(pkt, unit_mode);
-        drawLabel(self, 12, 266, units.speedLabel(unit_mode), self.font_sm, display.muted);
-        drawValueBlock(self, 12, 284, "{d}", .{@as(i32, @intFromFloat(speed))}, self.font_xl, .white);
+        drawLabel(self, 12, 186, units.speedLabel(unit_mode), self.font_sm, display.muted);
+        drawValueBlock(self, 12, 204, "{d}", .{@as(i32, @intFromFloat(speed))}, self.font_xl, .white);
 
         // Divider between speed and rpm
-        rl.drawRectangle(8, 412, lp_w - 16, 1, display.panel_edge);
+        rl.drawRectangle(8, 332, lp_w - 16, 1, display.panel_edge);
 
         // RPM  y: 420..560
-        drawLabel(self, 12, 420, "RPM", self.font_sm, display.muted);
-        drawValueBlock(self, 12, 438, "{d}", .{@as(i32, @intFromFloat(pkt.current_engine_rpm))}, self.font_xl, .white);
+        drawLabel(self, 12, 340, "RPM", self.font_sm, display.muted);
+        drawValueBlock(self, 12, 358, "{d}", .{@as(i32, @intFromFloat(pkt.current_engine_rpm))}, self.font_xl, .white);
 
         // ── CENTER — Gear (y: 90) ─────────────────────────────────────────
         // Measure the glyph with measureTextEx so we get both width and height
@@ -129,7 +146,7 @@ pub const Gui = struct {
             1,
         );
         const gear_x: i32 = @divTrunc(w, 2) - @as(i32, @intFromFloat(gear_size.x * 0.5));
-        const gear_y: i32 = 180;
+        const gear_y: i32 = 100;
 
         // ── Shift light: flash red box when in the last 10% of RPM range ─
         if (rpm_r > 0.9) {
@@ -174,31 +191,33 @@ pub const Gui = struct {
         var trq_buf: [32]u8 = undefined;
         const pwr_txt = std.fmt.bufPrint(&pwr_buf, "{d:.0} {s}", .{ pwr, units.powerLabel(unit_mode) }) catch "?";
         const trq_txt = std.fmt.bufPrint(&trq_buf, "{d:.0} {s}", .{ trq, units.torqueLabel(unit_mode) }) catch "?";
-        // y = h - 46 so that 36pt text (bottom at y+36=590) stays within the 600px screen.
-        drawLabel(self, @divTrunc(w, 2) - 120, h - 46, pwr_txt, self.font_md, .{ .r = 180, .g = 220, .b = 255, .a = 255 });
-        drawLabel(self, @divTrunc(w, 2) + 40,  h - 46, trq_txt, self.font_md, .{ .r = 180, .g = 220, .b = 255, .a = 255 });
+        // y = h - 126: 36pt text ends at h-90, 10px above the tach at h-80.
+        drawLabel(self, @divTrunc(w, 2) - 120, h - 126, pwr_txt, self.font_md, .{ .r = 180, .g = 220, .b = 255, .a = 255 });
+        drawLabel(self, @divTrunc(w, 2) + 40,  h - 126, trq_txt, self.font_md, .{ .r = 180, .g = 220, .b = 255, .a = 255 });
 
         // ── Waiting overlay ───────────────────────────────────────────────
         if (pkt.is_race_on == 0) {
-            drawLabel(self, @divTrunc(w, 2) - 220, @divTrunc(h, 2) - 200, "WAITING FOR TELEMETRY", self.font_md, display.muted);
+            drawLabel(self, @divTrunc(w, 2) - 220, @divTrunc(h - 80, 2) - 18, "WAITING FOR TELEMETRY", self.font_md, display.muted);
         }
     }
 };
 
 // ── Drawing helpers ───────────────────────────────────────────────────────────
 
-fn drawTach(gui: *Gui, width: i32, rpm_ratio: f32) void {
+fn drawTach(gui: *Gui, width: i32, height: i32, rpm_ratio: f32) void {
     const tach_h: i32 = 80;
-    rl.drawRectangle(0, 0, width, tach_h, .{ .r = 22, .g = 24, .b = 30, .a = 255 });
+    const ty: i32 = height - tach_h;
+    rl.drawRectangle(0, ty, width, tach_h, .{ .r = 22, .g = 24, .b = 30, .a = 255 });
+
+    // Accent line at the top edge of the tach bar
+    rl.drawRectangle(0, ty, width, 3, .{ .r = 0, .g = 180, .b = 255, .a = 120 });
 
     const fill_w: i32 = @intFromFloat(@as(f32, @floatFromInt(width)) * rpm_ratio);
     var x: i32 = 0;
     while (x < fill_w) : (x += 2) {
         const ratio = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(width));
-        rl.drawRectangle(x, 0, 2, tach_h - 4, display.rpmColor(ratio));
+        rl.drawRectangle(x, ty + 4, 2, tach_h - 4, display.rpmColor(ratio));
     }
-
-    rl.drawRectangle(0, tach_h - 3, width, 3, .{ .r = 0, .g = 180, .b = 255, .a = 120 });
     _ = gui;
 }
 
@@ -208,9 +227,9 @@ fn drawTyres(gui: *Gui, temps: []const f32, unit_mode: units.Units) void {
     const th: i32 = 64;
     const gap: i32 = 10;
     const x0: i32 = 16;
-    const y0: i32 = 108;
+    const y0: i32 = 28;
 
-    drawLabel(gui, x0, 86, units.tyreTempLabel(unit_mode), gui.font_sm, display.muted);
+    drawLabel(gui, x0, 6, units.tyreTempLabel(unit_mode), gui.font_sm, display.muted);
 
     for (temps, 0..) |t, i| {
         const col: i32 = @intCast(i % 2);
@@ -236,30 +255,30 @@ fn drawLapPanel(gui: *Gui, pkt: Forza.Packet, width: i32) void {
     var tbuf: [16]u8 = undefined;
 
     // Current lap  y: 96..188
-    drawLabel(gui, lx, 96, "CURRENT LAP", gui.font_sm, display.muted);
+    drawLabel(gui, lx, 16, "CURRENT LAP", gui.font_sm, display.muted);
     const cur = display.formatLapTime(pkt.current_lap, &tbuf);
-    drawRightText(gui, right, 116, cur, gui.font_lg, .white);
+    drawRightText(gui, right, 36, cur, gui.font_lg, .white);
 
-    rl.drawRectangle(lx, 200, 192, 1, display.panel_edge);
+    rl.drawRectangle(lx, 120, 192, 1, display.panel_edge);
 
     // Best lap  y: 208..300
-    drawLabel(gui, lx, 208, "BEST LAP", gui.font_sm, display.label);
+    drawLabel(gui, lx, 128, "BEST LAP", gui.font_sm, display.label);
     const best = display.formatLapTime(pkt.best_lap, &tbuf);
-    drawRightText(gui, right, 228, best, gui.font_lg, display.label);
+    drawRightText(gui, right, 148, best, gui.font_lg, display.label);
 
-    rl.drawRectangle(lx, 314, 192, 1, display.panel_edge);
+    rl.drawRectangle(lx, 234, 192, 1, display.panel_edge);
 
     // Last lap  y: 322..360
-    drawLabel(gui, lx, 322, "LAST LAP", gui.font_sm, display.muted);
+    drawLabel(gui, lx, 242, "LAST LAP", gui.font_sm, display.muted);
     const last = display.formatLapTime(pkt.last_lap, &tbuf);
-    drawRightText(gui, right, 342, last, gui.font_lg, .white);
+    drawRightText(gui, right, 262, last, gui.font_lg, .white);
 
-    rl.drawRectangle(lx, 428, 192, 1, display.panel_edge);
+    rl.drawRectangle(lx, 348, 192, 1, display.panel_edge);
 
     // Race position  y: 404..440
     var pos_buf: [16]u8 = undefined;
     const pos_txt = std.fmt.bufPrint(&pos_buf, "P{d}", .{pkt.race_position}) catch "?";
-    drawRightText(gui, right, 450, pos_txt, gui.font_lg, display.muted);
+    drawRightText(gui, right, 370, pos_txt, gui.font_lg, display.muted);
 }
 
 fn drawInputBars(gui: *Gui, throttle: f32, brake: f32, width: i32, height: i32) void {
@@ -268,7 +287,7 @@ fn drawInputBars(gui: *Gui, throttle: f32, brake: f32, width: i32, height: i32) 
     // Bars are placed at x≈352 (brake) and x≈658 (throttle), flanking the centre.
     const bar_h: i32 = 480;
     const bar_w: i32 = 10;
-    const base_y: i32 = height - 30;
+    const base_y: i32 = height - 110;
     const brake_x: i32 = @divTrunc(width, 2) - 280; // ≈ 352
     const thr_x:   i32 = @divTrunc(width, 2) + 270; // ≈ 658
 
