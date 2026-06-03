@@ -54,10 +54,10 @@ pub fn torqueLabel(units: Units) []const u8 {
     };
 }
 
-pub fn tyreTemp(celsius: f32, units: Units) f32 {
+pub fn tyreTemp(ferinheight: f32, units: Units) f32 {
     return switch (units) {
-        .metric => celsius,
-        .imperial => celsius * (9.0 / 5.0) + 32.0,
+        .metric => (ferinheight - 32) * (5.0 / 9.0),
+        .imperial => ferinheight,
     };
 }
 

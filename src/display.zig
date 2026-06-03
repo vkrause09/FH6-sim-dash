@@ -21,6 +21,10 @@ pub fn rpmRatio(rpm: f32, max_rpm: f32) f32 {
     return std.math.clamp(rpm / max, 0.0, 1.0);
 }
 
+pub fn getRatio(unit: f32, max_unit: f32) f32 {
+    return std.math.clamp(unit / max_unit, 0.0, 1.0);
+}
+
 pub fn rpmColor(ratio: f32) rl.Color {
     if (ratio < 0.7) {
         const t = ratio / 0.7;
