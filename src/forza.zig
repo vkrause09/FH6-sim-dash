@@ -267,5 +267,13 @@ pub const Packet = struct {
     pub fn brake01(self: Packet) f32 {
         return @as(f32, @floatFromInt(self.brake)) / 255.0;
     }
+
+    pub fn ebrake01(self: Packet) f32 {
+        return @as(f32, @floatFromInt(self.handbrake)) / 255.0;
+    }
+
+    pub fn clutch01(self: Packet) f32 {
+        return @as(f32, @floatFromInt(self.clutch)) / 255.0;
+    }
 };
 
