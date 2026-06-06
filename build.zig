@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
     const raylib_artifact = raylib_dep.artifact("raylib");
 
     const exe = b.addExecutable(.{
-        .name = "zig-dashboard",
+        .name = "FH6 dashboard",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -26,6 +26,10 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.linkLibrary(raylib_artifact);
     exe.root_module.strip = false;
+
+    if (target.result.os.tag == .windows) {
+        exe.subsystem = .Windows;
+    }
 
     b.installArtifact(exe);
 
