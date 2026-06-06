@@ -23,6 +23,10 @@ To compile and run exe:
 ```bash
 zig build run
 ```
+on windows:
+```bash
+zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows
+```
 
 First build downloads and compiles raylib (may take a few minutes).
 
