@@ -3,10 +3,18 @@ const rl = @import("raylib");
 const Forza = @import("forza.zig");
 const display = @import("display.zig");
 const units = @import("units.zig");
+const lap_delta = @import("lap_delta.zig");
 
 pub const Screen = struct {
     width: i32 = 1024,
     height: i32 = 600,
+};
+
+pub const Max = struct {
+    car: i32,
+    max_hp: f32,
+    max_tq: f32,
+    max_bst: f32,
 };
 
 pub const Gui = struct {
@@ -19,12 +27,8 @@ pub const Gui = struct {
     font_smed: rl.Font,
     font_sm: rl.Font,
     loaded_custom: bool,
-
-    car: i32,
-    max_hp: f32,
-    max_tq: f32,
-    max_bst: f32,
-
+    max: Max,
+    delta: lap_delta.LapDelta,
 
     pub fn init(screen: Screen, font_path: [:0]const u8) !Gui {
         rl.setConfigFlags(.{ .window_undecorated = false });
@@ -58,10 +62,13 @@ pub const Gui = struct {
             .font_smed = default_font,
             .font_sm = default_font,
             .loaded_custom = false,
-            .car = undefined,
-            .max_hp = 0.0,
-            .max_tq = 0.0,
-            .max_bst = 0.0,
+            .max = .{
+                .car = undefined,
+                .max_hp = 0.0,
+                .max_tq = 0.0,
+                .max_bst = 0.0,
+            },
+            .delta = lap_delta.LapDelta.init(),
         };
 
         if (rl.fileExists(font_path)) {
@@ -69,7 +76,7 @@ pub const Gui = struct {
             gui.font_xl = rl.loadFontEx(font_path, 120, null) catch default_font;
             gui.font_lg = rl.loadFontEx(font_path, 72, null) catch default_font;
             gui.font_md = rl.loadFontEx(font_path, 55, null) catch default_font;
-            gui.font_smed = rl.loadFontEx(font_path, 35, null) catch default_font;
+            gui.font_smed = rl.loadFontEx(font_path, 45, null) catch default_font;
             gui.font_sm = rl.loadFontEx(font_path, 20, null) catch default_font;
             gui.loaded_custom = true;
         }
@@ -144,16 +151,19 @@ pub const Gui = struct {
         drawPwrBars(self, pwr, trq, boost);
 
         var pwr_buf: [32]u8 = undefined;
+        var pwr_lbl_buf: [32]u8 = undefined;
         var trq_buf: [32]u8 = undefined;
+        var trq_lbl_buf: [32]u8 = undefined;
         var boost_buf: [32]u8 = undefined;
+        var boost_lbl_buf: [32]u8 = undefined;
         var pos_buf: [16]u8 = undefined;
 
         const pwr_txt = std.fmt.bufPrint(&pwr_buf, "{d:.0}", .{pwr}) catch "?";
-        const pwr_lbl = std.fmt.bufPrint(&pwr_buf, "{s}", .{units.powerLabel(unit_mode)}) catch "?";
+        const pwr_lbl = std.fmt.bufPrint(&pwr_lbl_buf, "{s}", .{units.powerLabel(unit_mode)}) catch "?";
         const trq_txt = std.fmt.bufPrint(&trq_buf, "{d:.0}", .{trq}) catch "?";
-        const trq_lbl = std.fmt.bufPrint(&trq_buf, "{s}", .{units.torqueLabel(unit_mode)}) catch "?";
+        const trq_lbl = std.fmt.bufPrint(&trq_lbl_buf, "{s}", .{units.torqueLabel(unit_mode)}) catch "?";
         const boost_txt = std.fmt.bufPrint(&boost_buf, "{d:.1}", .{boost}) catch "?";
-        const boost_lbl = std.fmt.bufPrint(&boost_buf, "{s}", .{"PSI"}) catch "?";
+        const boost_lbl = std.fmt.bufPrint(&boost_lbl_buf, "{s}", .{"PSI"}) catch "?";
         const place_txt = std.fmt.bufPrint(&pos_buf, "P{d}", .{place}) catch "?";
 
         drawLabel(self, 10, 130, pwr_txt, self.font_smed, .white);
@@ -175,9 +185,26 @@ pub const Gui = struct {
 
         rl.drawRectangle(0, 360, lp_w, 2, display.panel_edge);
 
-        //center (gear)
+        //center
         rl.drawRectangle(350, 188, 324, 2, display.panel_edge);
 
+        //delta
+        self.delta.update(pkt.lap_number, pkt.current_lap, pkt.distance_traveled);
+        var delta_buf: [16]u8 = undefined;
+        const delta_str = self.delta.format(&delta_buf);
+        var delta_zbuf: [16]u8 = undefined;
+        @memcpy(delta_zbuf[0..delta_str.len], delta_str);
+        delta_zbuf[delta_str.len] = 0;
+        const delta_size = rl.measureTextEx(
+            self.font_md,
+            delta_zbuf[0..delta_str.len :0],
+            @floatFromInt(self.font_md.baseSize),
+            1,
+        );
+        const delta_x: i32 = @divTrunc(w, 2) - @as(i32, @intFromFloat(delta_size.x * 0.5));
+        drawLabel(self, delta_x, 130, delta_str, self.font_md, display.delta_blue);
+
+        //gear
         var gear_zbuf: [16]u8 = undefined;
         var gear_buf: [8]u8 = undefined;
         const gear_str = display.gearString(&gear_buf, pkt.gear);
@@ -243,27 +270,28 @@ pub const Gui = struct {
         }
 
         //gotta take my credit big dog
-        drawLabel(self, 475, 495, "VK Racing", self.font_sm, display.muted);
+        drawLabel(self, 870, 5, "v1.0.0 VK Racing", self.font_sm, display.muted);
     }
 };
 
 fn drawTach(gui: *Gui, width: i32, height: i32, rpm_ratio: f32) void {
     const tach_h: i32 = 80;
+    const tach_h_top: i32 = 77;
     const ty_bottom: i32 = height - tach_h;
     const ty_top: i32 = 0;
     //bottom
     rl.drawRectangle(0, ty_bottom, width, tach_h, .{ .r = 22, .g = 24, .b = 30, .a = 255 });
     rl.drawRectangle(0, ty_bottom, width, 3, .{ .r = 0, .g = 180, .b = 255, .a = 120 });
     //top
-    rl.drawRectangle(0, ty_top, width, tach_h, .{ .r = 22, .g = 24, .b = 30, .a = 255 });
-    rl.drawRectangle(0, 77, width, 3, .{ .r = 0, .g = 180, .b = 255, .a = 120 });
+    rl.drawRectangle(0, ty_top, width, tach_h_top, .{ .r = 22, .g = 24, .b = 30, .a = 255 });
+    rl.drawRectangle(0, tach_h_top, width, 3, .{ .r = 0, .g = 180, .b = 255, .a = 120 });
 
     const fill_w: i32 = @intFromFloat(@as(f32, @floatFromInt(width)) * rpm_ratio);
     var x: i32 = 0;
     while (x < fill_w) : (x += 2) {
         const ratio = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(width));
         rl.drawRectangle(x, ty_bottom + 4, 2, tach_h - 4, display.rpmColor(ratio));
-        rl.drawRectangle(x, ty_top + 4, 2, tach_h - 4, display.rpmColor(ratio));
+        rl.drawRectangle(x, ty_top + 4, 2, tach_h_top - 4, display.rpmColor(ratio));
     }
     _ = gui;
 }
@@ -294,68 +322,67 @@ fn drawTyres(gui: *Gui, temps: []const f32) void {
 }
 
 fn updateMaxs(gui: *Gui, pkt: Forza.Packet, pwr: f32, trq: f32, bst: f32) void {
-    if (gui.car != pkt.car_ordinal) {
-        gui.car = pkt.car_ordinal;
-        gui.max_hp = 0.0;
-        gui.max_tq = 0.0;
-        gui.max_bst = 0.0;
+    if (gui.max.car != pkt.car_ordinal) {
+        gui.max.car = pkt.car_ordinal;
+        gui.max.max_hp = 0.0;
+        gui.max.max_tq = 0.0;
+        gui.max.max_bst = 0.0;
     } else {
-        if (pwr > gui.max_hp) {
-            gui.max_hp = pwr;
+        if (pwr > gui.max.max_hp) {
+            gui.max.max_hp = pwr;
         }
-        if (trq > gui.max_tq) {
-            gui.max_tq = trq;
+        if (trq > gui.max.max_tq) {
+            gui.max.max_tq = trq;
         }
-        if (bst > gui.max_bst) {
-            gui.max_bst = bst;
+        if (bst > gui.max.max_bst) {
+            gui.max.max_bst = bst;
         }
     }
 }
 
 fn drawPwrBars(gui: *Gui, power: f32, torque: f32, boost: f32) void {
-// ------------Ended Here ----------------------------
     const bar_h: i32 = 440;
-    const bar_w: i32 = 25;
+    const bar_w: i32 = 33;
     const base_y: i32 = 520;
-    const power_x: i32 = 675;
-    const torque_x: i32 = 700;
-    const boost_x: i32 = 725;
-    const power_r: f32 = display.getRatio(power, gui.max_hp);
-    const torque_r: f32 = display.getRatio(torque, gui.max_tq);
-    const boost_r: f32 = display.getRatio(torque, gui.max_bst);
+    const boost_x: i32 = 251;
+    const torque_x: i32 = 284;
+    const power_x: i32 = 317;
+    const boost_r: f32 = display.getRatio(boost, gui.max.max_bst);
+    const torque_r: f32 = display.getRatio(torque, gui.max.max_tq);
+    const power_r: f32 = display.getRatio(power, gui.max.max_hp);
 
-    drawVerticalBar(ebrake_x, base_y, bar_w, bar_h, ebrake, .{ .r = 161, .g = 3, .b = 252, .a = 255 });
-    drawVerticalBar(clutch_x, base_y, bar_w, bar_h, clutch, .{ .r = 8, .g = 24, .b = 255, .a = 255 });
-    drawVerticalBar(brake_x, base_y, bar_w, bar_h, brake, .{ .r = 255, .g = 3, .b = 3, .a = 255 });
+    drawVerticalBar(boost_x, base_y, bar_w, bar_h, boost_r, .{ .r = 161, .g = 3, .b = 252, .a = 255 });
+    drawVerticalBar(torque_x, base_y, bar_w, bar_h, torque_r, .{ .r = 8, .g = 24, .b = 255, .a = 255 });
+    drawVerticalBar(power_x, base_y, bar_w, bar_h, power_r, .{ .r = 255, .g = 3, .b = 3, .a = 255 });
 
-    drawLabel(gui, ebrake_x + 7, base_y - 25, "E", gui.font_sm, display.muted);
-    drawLabel(gui, clutch_x + 7, base_y - 25, "C", gui.font_sm, display.muted);
-    drawLabel(gui, brake_x + 7, base_y - 25, "B", gui.font_sm, display.muted);
+    drawLabel(gui, boost_x + 12, base_y - 25, "B", gui.font_sm, display.muted);
+    drawLabel(gui, torque_x + 12, base_y - 25, "T", gui.font_sm, display.muted);
+    drawLabel(gui, power_x + 12, base_y - 25, "P", gui.font_sm, display.muted);
 }
 
 fn drawLapPanel(gui: *Gui, pkt: Forza.Packet, width: i32) void {
     const right: i32 = width - 20;
     const lx: i32 = width - 250;
     var tbuf: [16]u8 = undefined;
+    const cur = display.formatLapTime(pkt.current_lap, &tbuf);
+    const best = display.formatLapTime(pkt.best_lap, &tbuf);
+    const last = display.formatLapTime(pkt.last_lap, &tbuf);
 
     //current lap
-    drawLabel(gui, lx + 10, 85, "CURRENT LAP", gui.font_sm, display.muted);
-    const cur = display.formatLapTime(pkt.current_lap, &tbuf);
-    drawRightText(gui, right, 100, cur, gui.font_md, .white);
+    drawLabel(gui, lx + 10, 85, "BEST LAP", gui.font_sm, display.muted);
+    drawRightText(gui, right, 100, best, gui.font_md, .white);
 
     rl.drawRectangle(lx, 167, 250, 1, display.panel_edge);
 
-    //best lap
-    drawLabel(gui, lx + 10, 172, "BEST LAP", gui.font_sm, display.label);
-    const best = display.formatLapTime(pkt.best_lap, &tbuf);
-    drawRightText(gui, right, 187, best, gui.font_md, display.label);
+    //last lap
+    drawLabel(gui, lx + 10, 172, "LAST LAP", gui.font_sm, display.label);
+    drawRightText(gui, right, 187, last, gui.font_md, display.label);
 
     rl.drawRectangle(lx, 253, 250, 1, display.panel_edge);
 
-    //last lap
-    drawLabel(gui, lx + 10, 258, "LAST LAP", gui.font_sm, display.label);
-    const last = display.formatLapTime(pkt.last_lap, &tbuf);
-    drawRightText(gui, right, 273, last, gui.font_md, .white);
+    //current lap
+    drawLabel(gui, lx + 10, 258, "CURRENT LAP", gui.font_sm, display.label);
+    drawRightText(gui, right, 273, cur, gui.font_md, .white);
 
     rl.drawRectangle(lx, 340, 250, 1, display.panel_edge);
 }
@@ -388,7 +415,6 @@ fn drawVerticalBar(x: i32, base_y: i32, w: i32, h: i32, value01: f32, color: rl.
     rl.drawRectangle(x, base_y - filled, w, filled, color);
     rl.drawRectangleLinesEx(rl.Rectangle.init(@floatFromInt(x), @floatFromInt(y_top), @floatFromInt(w), @floatFromInt(h)), 1, display.panel_edge);
 }
-
 
 fn toZ(buf: []u8, text: []const u8) [:0]const u8 {
     @memcpy(buf[0..text.len], text);

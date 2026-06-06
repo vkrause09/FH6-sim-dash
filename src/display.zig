@@ -68,3 +68,4 @@ pub const muted = rl.Color{ .r = 150, .g = 155, .b = 165, .a = 255 };
 pub const label = rl.Color{ .r = 100, .g = 200, .b = 255, .a = 255 };
 pub const panel = rl.Color{ .r = 18, .g = 20, .b = 26, .a = 255 };
 pub const panel_edge = rl.Color{ .r = 40, .g = 48, .b = 62, .a = 255 };
+pub const delta_blue = rl.Color{ .r = 100, .g = 210, .b = 255, .a = 255};

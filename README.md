@@ -1,6 +1,8 @@
-# zig-dashboard
+# Forza Horizon 6 Sim Dashboard
 
 Racing telemetry dashboard for **Forza Horizon 6** (Zig 0.16.0).
+
+![Alt Text](./pictures/v1.0.0.png)
 
 ## Features
 
